@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Generated outputs / working files
+test_output/*.mp4
+test_output/*.wav
+test_output/*/
+*.tmp.mp4
+pipeline_runs/
+
+# Ditto checkpoints (downloaded separately, several GB, not for git)
+pipeline/ditto_talkinghead/checkpoints/
+
+# Real-ESRGAN weights (downloaded separately by setup_pipeline.sh)
+/workspace/models/Real-ESRGAN/weights/
+
+# Logs
+*.log
+
+# OS/editor cruft
+.DS_Store
+.vscode/
