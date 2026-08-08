@@ -20,9 +20,7 @@ reference_image.png  ───────────────────�
                                                       final .mp4 export
 ```
 
-This is a **single codebase** — Ditto's own code lives in-tree at
-`pipeline/ditto_talkinghead/` rather than as a separately-managed
-clone elsewhere on disk. Ditto was selected over EchoMimicV3,
+Ditto was selected over EchoMimicV3,
 LatentSync, JoyVASA/LivePortrait, MuseTalk, Wav2Lip, Hallo2/3, and
 V-Express after evaluating each; see the fixes below for what it
 took to get production-quality output out of it.
