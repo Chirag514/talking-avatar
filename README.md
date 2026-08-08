@@ -1,5 +1,7 @@
 # talking-avatar
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chirag514/talking-avatar/blob/main/notebooks/talking_avatar_colab.ipynb)
+
 Fully offline avatar video generation: a reference photo + a text
 script + a reference voice clip in, a talking-avatar video out.
 
@@ -87,7 +89,15 @@ checked against OpenAI's moderation API before generation.
 CONFIRMED working end-to-end (voice + Ditto animation) on a Colab T4,
 as of 2026-08-08. Colab isn't conda-native and isn't persistent across
 sessions, so this differs from the RunPod flow above in a few
-specific, necessary ways:
+specific, necessary ways.
+
+**Fastest path:** open [`notebooks/talking_avatar_colab.ipynb`](notebooks/talking_avatar_colab.ipynb)
+directly in Colab (badge at the top of this README) and run the cells
+top to bottom — it's the same sequence below, already broken into
+cells with a troubleshooting section at the end.
+
+The full sequence, for reference / if you're building your own
+notebook:
 
 ```bash
 # 1. Get conda onto the instance
@@ -104,7 +114,7 @@ os.makedirs('/content/drive/MyDrive/talking_avatar_models', exist_ok=True)
 "
 
 # 3. Clone the repo, main-env deps (same as setup_pipeline.sh section 1)
-git clone https://github.com/<you>/talking-avatar.git
+git clone https://github.com/Chirag514/talking-avatar.git
 cd talking-avatar
 pip install -q --upgrade "transformers>=5.3.0" soundfile
 pip install -q omnivoice --no-deps
@@ -217,6 +227,8 @@ talking-avatar/
 │   ├── stages/                   # each pipeline stage
 │   ├── ditto_talkinghead/        # Ditto's code, in-tree (checkpoints/ downloaded, not in git)
 │   └── utils/
+├── notebooks/
+│   └── talking_avatar_colab.ipynb  # runnable Colab setup + testing notebook
 ├── setup_pipeline.sh
 ├── test_stages.sh
 └── test_output/                  # generated during testing, gitignored
