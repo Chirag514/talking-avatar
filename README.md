@@ -54,7 +54,7 @@ missing-dependency workarounds for Ditto's PyTorch checkpoint path).
 
 Set required API keys before running:
 ```bash
-export OPENAI_API_KEY=sk-...      # stage1_safety_gate.py
+export OPENAI_API_KEY=sk-...      # stage1_safety_gate.py -- not needed if using --skip_safety_gate
 export GROQ_API_KEY=gsk_...       # stage7_overlays.py, only if using --overlays
 ```
 
@@ -68,6 +68,12 @@ conda run -n ditto python pipeline/run_pipeline.py \
 
 Add `--overlays` to enable animated callouts, or `--no_restoration` to
 skip the Real-ESRGAN upscale pass.
+
+Add `--skip_safety_gate` to skip Stage 1 entirely (no `OPENAI_API_KEY`
+needed) — dev/testing only. Content moderation is the only real check
+Stage 1 performs today (the consent check is a permanent stub, see
+`stage1_safety_gate.py`), so skipping it means the script text is not
+checked against OpenAI's moderation API before generation.
 
 ## Testing individual stages
 

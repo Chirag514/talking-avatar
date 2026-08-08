@@ -51,24 +51,38 @@ def run_pipeline(script_text: str, reference_image_path: Path,
                   speed: float = None,
                   enable_restoration: bool = True,
                   enable_overlays: bool = False,
+                  enable_safety_gate: bool = True,
                   work_dir: Path = None) -> dict:
     """
     Runs the full pipeline end to end. Raises on any stage failure or
     safety-gate rejection -- callers should catch and surface the
     specific stage/reason, not swallow failures silently.
+
+    enable_safety_gate=False skips Stage 1 entirely (no OPENAI_API_KEY
+    needed). Dev/testing convenience only -- content moderation is the
+    only thing this stage actually does today (the consent check is a
+    permanent stub, see stage1_safety_gate.py), so skipping it means
+    script text is NOT checked against OpenAI's moderation API before
+    generation. Do not leave this off for anything beyond your own
+    local testing.
     """
     work_dir = Path(work_dir) if work_dir else output_path.parent / f"run_{int(time.time())}"
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    print("[1/6] Safety gate...")
-    gate_result = run_safety_gate(
-        script_text=script_text,
-        submitting_user_id=submitting_user_id,
-        reference_voice_clip_path=str(reference_voice_clip_path),
-        reference_face_image_path=str(reference_image_path),
-    )
-    if not gate_result["passed"]:
-        raise RuntimeError(f"Safety gate rejected this request: {gate_result}")
+    gate_result = None
+    if enable_safety_gate:
+        print("[1/6] Safety gate...")
+        gate_result = run_safety_gate(
+            script_text=script_text,
+            submitting_user_id=submitting_user_id,
+            reference_voice_clip_path=str(reference_voice_clip_path),
+            reference_face_image_path=str(reference_image_path),
+        )
+        if not gate_result["passed"]:
+            raise RuntimeError(f"Safety gate rejected this request: {gate_result}")
+    else:
+        print("[1/6] WARNING: Safety gate SKIPPED (enable_safety_gate=False) -- "
+              "script text was NOT moderated. Dev/testing only.")
 
     print("[2/6] Voice generation (OmniVoice)...")
     cloned_audio_path = work_dir / "cloned_voice.wav"
@@ -139,6 +153,9 @@ if __name__ == "__main__":
     parser.add_argument("--speed", type=float, default=None)
     parser.add_argument("--no_restoration", action="store_true")
     parser.add_argument("--overlays", action="store_true")
+    parser.add_argument("--skip_safety_gate", action="store_true",
+                         help="Skip Stage 1 moderation entirely -- no OPENAI_API_KEY needed. "
+                              "Dev/testing only, do not use for real generations.")
     args = parser.parse_args()
 
     if not args.script_text_file.exists():
@@ -156,6 +173,7 @@ if __name__ == "__main__":
         speed=args.speed,
         enable_restoration=not args.no_restoration,
         enable_overlays=args.overlays,
+        enable_safety_gate=not args.skip_safety_gate,
     )
     elapsed = time.time() - start
 
