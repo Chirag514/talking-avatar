@@ -54,26 +54,49 @@ missing-dependency workarounds for Ditto's PyTorch checkpoint path).
 
 Set required API keys before running:
 ```bash
-export OPENAI_API_KEY=sk-...      # stage1_safety_gate.py -- not needed if using --skip_safety_gate
+export OPENAI_API_KEY=sk-...      # stage1_safety_gate.py
 export GROQ_API_KEY=gsk_...       # stage7_overlays.py, only if using --overlays
 ```
 
 ## Running the full pipeline
 
+This pipeline clones a real person's voice and face. Running it
+requires an explicit consent attestation — `--i_confirm_consent` —
+confirming the person in the reference photo/voice clip has actually
+agreed to this use. See "Safety gate & consent" below for exactly
+what this does and doesn't cover.
+
 ```bash
 conda run -n ditto python pipeline/run_pipeline.py \
     script.txt reference_image.png reference_voice.wav output.mp4 \
-    --submitting_user_id user_123 --speed 1.4
+    --submitting_user_id user_123 --speed 1.4 --i_confirm_consent
 ```
 
 Add `--overlays` to enable animated callouts, or `--no_restoration` to
 skip the Real-ESRGAN upscale pass.
 
-Add `--skip_safety_gate` to skip Stage 1 entirely (no `OPENAI_API_KEY`
-needed) — dev/testing only. Content moderation is the only real check
-Stage 1 performs today (the consent check is a permanent stub, see
-`stage1_safety_gate.py`), so skipping it means the script text is not
-checked against OpenAI's moderation API before generation.
+## Safety gate & consent
+
+Stage 1 (`stage1_safety_gate.py`) runs two independent checks before
+any generation happens:
+
+1. **Content moderation** — script text is checked against OpenAI's
+   moderation API. Catches policy-violating things to *say*; doesn't
+   know or care who the voice/face belongs to.
+2. **Consent attestation** — requires `--i_confirm_consent` to be
+   passed explicitly. This is a real, required, logged attestation
+   (who attested, hashes of the reference files, when) — **not**
+   identity or liveness verification. It cannot confirm the person in
+   the reference files is who `--submitting_user_id` claims, or that
+   they actually agreed. It only ensures a real "yes, I attest" signal
+   is required and recorded, instead of silently assumed. Treat this
+   as a floor, not a finished consent system — a self-upload match
+   and/or liveness check is the real fix, and is a known gap, not a
+   hidden one (see `check_consent()`'s docstring in
+   `stage1_safety_gate.py`).
+
+Both checks should pass before Stages 2+ run.
+
 
 ## Testing individual stages
 
@@ -184,9 +207,6 @@ early and left a broken stub directory -- `rm -rf /usr/local/envs/ditto`
 and retry step 5, watching the full output (`2>&1 | tail -100`) rather
 than assuming it succeeded.
 
-Use `--skip_safety_gate` on `run_pipeline.py` to test without an
-`OPENAI_API_KEY` (see "Running the full pipeline" above) -- useful for
-Colab dev/testing, not for anything you'd actually publish.
 
 ## Ditto tuning — what's baked in and why
 

@@ -52,19 +52,28 @@ def run_pipeline(script_text: str, reference_image_path: Path,
                   enable_restoration: bool = True,
                   enable_overlays: bool = False,
                   enable_safety_gate: bool = True,
+                  consent_confirmed: bool = False,
                   work_dir: Path = None) -> dict:
     """
     Runs the full pipeline end to end. Raises on any stage failure or
     safety-gate rejection -- callers should catch and surface the
     specific stage/reason, not swallow failures silently.
 
-    enable_safety_gate=False skips Stage 1 entirely (no OPENAI_API_KEY
-    needed). Dev/testing convenience only -- content moderation is the
-    only thing this stage actually does today (the consent check is a
-    permanent stub, see stage1_safety_gate.py), so skipping it means
-    script text is NOT checked against OpenAI's moderation API before
-    generation. Do not leave this off for anything beyond your own
-    local testing.
+    consent_confirmed=True is REQUIRED (when enable_safety_gate=True) --
+    wired to --i_confirm_consent on the CLI. This is an explicit
+    attestation, not identity verification: it does not confirm the
+    person in reference_image_path/reference_voice_clip_path actually
+    is who submitting_user_id claims or that they consented, only that
+    someone explicitly claimed so and it was logged (see
+    stage1_safety_gate.py's check_consent()). Still real -- a hardcoded
+    True with no record was the previous state; requiring and logging
+    an explicit flag is a meaningful floor, not a formality.
+
+    enable_safety_gate=False skips Stage 1 entirely, including the
+    consent attestation requirement (no OPENAI_API_KEY needed either).
+    Dev/testing convenience only -- do not leave this off for anything
+    beyond your own local testing, and never for a real person's
+    likeness/voice.
     """
     work_dir = Path(work_dir) if work_dir else output_path.parent / f"run_{int(time.time())}"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -77,12 +86,14 @@ def run_pipeline(script_text: str, reference_image_path: Path,
             submitting_user_id=submitting_user_id,
             reference_voice_clip_path=str(reference_voice_clip_path),
             reference_face_image_path=str(reference_image_path),
+            consent_confirmed=consent_confirmed,
         )
         if not gate_result["passed"]:
             raise RuntimeError(f"Safety gate rejected this request: {gate_result}")
     else:
         print("[1/6] WARNING: Safety gate SKIPPED (enable_safety_gate=False) -- "
-              "script text was NOT moderated. Dev/testing only.")
+              "script text was NOT moderated, and NO consent attestation was "
+              "recorded. Dev/testing only.")
 
     print("[2/6] Voice generation (OmniVoice)...")
     cloned_audio_path = work_dir / "cloned_voice.wav"
@@ -153,10 +164,24 @@ if __name__ == "__main__":
     parser.add_argument("--speed", type=float, default=None)
     parser.add_argument("--no_restoration", action="store_true")
     parser.add_argument("--overlays", action="store_true")
+    parser.add_argument("--i_confirm_consent", action="store_true",
+                         help="REQUIRED (unless --skip_safety_gate is also set): explicit "
+                              "attestation that the person in reference_image/"
+                              "reference_voice_clip has consented to this use. This is "
+                              "logged (see stage1_safety_gate.py's check_consent()). It "
+                              "is an attestation, not identity verification -- attesting "
+                              "falsely does not become true because you passed this flag.")
     parser.add_argument("--skip_safety_gate", action="store_true",
-                         help="Skip Stage 1 moderation entirely -- no OPENAI_API_KEY needed. "
-                              "Dev/testing only, do not use for real generations.")
+                         help="Skip Stage 1 entirely -- no OPENAI_API_KEY needed and no "
+                              "consent attestation required either. Dev/testing only, "
+                              "never for a real person's likeness/voice.")
     args = parser.parse_args()
+
+    if not args.skip_safety_gate and not args.i_confirm_consent:
+        print("ERROR: --i_confirm_consent is required (attesting the reference "
+              "image/voice's subject has consented to this use), unless you pass "
+              "--skip_safety_gate for local dev/testing.")
+        sys.exit(1)
 
     if not args.script_text_file.exists():
         print(f"Script file not found: {args.script_text_file}")
@@ -174,6 +199,7 @@ if __name__ == "__main__":
         enable_restoration=not args.no_restoration,
         enable_overlays=args.overlays,
         enable_safety_gate=not args.skip_safety_gate,
+        consent_confirmed=args.i_confirm_consent,
     )
     elapsed = time.time() - start
 

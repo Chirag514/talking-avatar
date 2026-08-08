@@ -19,13 +19,15 @@ IMPORTANT — VERIFY ON YOUR BOX:
   OpenAI's current moderation docs before relying on it in production —
   model names get superseded.
 
-CONSENT VERIFICATION — NOT IMPLEMENTED HERE:
-The function below is a stub. At minimum it should require the submitting
-user to confirm the face/voice is their own (self-attestation + upload
-matching), and the doc's own recommendation is to add liveness or
-identity-match checks before any public launch. Do not ship this stub
-to production — it always returns True, which means "no consent check
-actually happened."
+CONSENT VERIFICATION — explicit attestation, not identity verification:
+check_consent() requires an explicit consent_confirmed=True (wired to
+--i_confirm_consent on the CLI) and logs who attested, to which files,
+and when. It does NOT verify the attestation is true — it cannot
+confirm the person in reference_face_image_path is who
+submitting_user_id claims, or that they actually consented. Before any
+public launch, upgrade this to a real self-upload match + liveness
+check. What this DOES fix vs. a bare stub: no attestation means no
+run — it's no longer silently assumed True with zero record of it.
 """
 
 from openai import OpenAI  # VERIFY this import path against your installed openai version
@@ -60,34 +62,71 @@ def check_moderation(script_text: str) -> dict:
 
 
 def check_consent(submitting_user_id: str, reference_voice_clip_path: str,
-                   reference_face_image_path: str) -> dict:
+                   reference_face_image_path: str,
+                   consent_confirmed: bool = False) -> dict:
     """
-    STUB — replace before any public launch.
+    Real explicit-attestation check — NOT identity/liveness verification.
 
-    Today this only checks that the user explicitly clicked "this is my
-    voice and face" — it does NOT verify that claim. Real implementation
-    needs at minimum a self-upload match (compare submitted reference
-    clip/photo against a verified account photo) and ideally a liveness
-    check. Track this as a blocking task before launch, not a v1 nice-to-have.
+    This requires the caller to have explicitly passed consent_confirmed=True
+    (wired to --i_confirm_consent on the CLI, see run_pipeline.py). It logs
+    who attested, to what files, and when. What it does NOT do: verify the
+    attestation is true. It cannot confirm the person in reference_face_image_path
+    is who submitting_user_id claims, or that they actually agreed to this use.
+    Before any public launch, upgrade this to an actual self-upload match
+    (compare submitted reference clip/photo against a verified account
+    photo) and ideally a liveness check -- track that as a blocking task,
+    not a v1 nice-to-have. This function only ensures a real "yes, I attest"
+    signal is required and recorded, instead of being silently assumed.
     """
-    # TODO: real identity/liveness check goes here
-    self_attested = True  # placeholder — assumes the UI already collected this
+    import datetime
+    import hashlib
+    from pathlib import Path
 
-    return {
-        "passed": self_attested,
-        "method": "self_attestation_only_NOT_VERIFIED",
+    if not consent_confirmed:
+        return {
+            "passed": False,
+            "method": "explicit_attestation_required",
+            "reason": "No consent attestation provided -- pass --i_confirm_consent "
+                      "(CLI) or consent_confirmed=True (API) to proceed. This is "
+                      "not optional: generating a cloned voice/likeness without "
+                      "an explicit attestation is not supported by this pipeline.",
+        }
+
+    def _file_hash(path):
+        try:
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+        except Exception:
+            return "unavailable"
+
+    record = {
+        "passed": True,
+        "method": "explicit_attestation_only_NOT_IDENTITY_VERIFIED",
+        "submitting_user_id": submitting_user_id,
+        "attested_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "reference_voice_clip_hash": _file_hash(reference_voice_clip_path),
+        "reference_face_image_hash": _file_hash(reference_face_image_path),
+        "warning": "This confirms a consent CLAIM was explicitly made and logged. "
+                   "It does NOT verify the claim is true -- no identity or "
+                   "liveness check has been performed.",
     }
+    print(f"[stage1_safety_gate] Consent attestation recorded: user={submitting_user_id}, "
+          f"voice_hash={record['reference_voice_clip_hash']}, "
+          f"face_hash={record['reference_face_image_hash']}, "
+          f"at={record['attested_at']}")
+    return record
 
 
 def run_safety_gate(script_text: str, submitting_user_id: str,
                      reference_voice_clip_path: str,
-                     reference_face_image_path: str) -> dict:
+                     reference_face_image_path: str,
+                     consent_confirmed: bool = False) -> dict:
     """
     Runs both checks. Pipeline should abort if either fails.
     """
     moderation_result = check_moderation(script_text)
     consent_result = check_consent(
-        submitting_user_id, reference_voice_clip_path, reference_face_image_path
+        submitting_user_id, reference_voice_clip_path, reference_face_image_path,
+        consent_confirmed=consent_confirmed,
     )
 
     overall_pass = moderation_result["passed"] and consent_result["passed"]
