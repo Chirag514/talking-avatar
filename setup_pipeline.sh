@@ -35,6 +35,30 @@ echo "--- Installing main-environment Python dependencies ---"
 pip install -q --upgrade "transformers>=5.3.0"
 pip install -q soundfile
 pip install -q omnivoice --no-deps   # --no-deps: protects your pinned torch version, see stage2_voice_gen.py
+# omnivoice's --no-deps skips its real dependency list, undocumented
+# upstream. CONFIRMED complete list (from pip's own dependency-conflict
+# warning when omnivoice was force-installed alongside these -- this is
+# authoritative, not guesswork): torchaudio, accelerate, gradio,
+# librosa, pydub, tensorboardx, webdataset. None of these pin an exact
+# torch version themselves, so installing them normally (no --no-deps)
+# doesn't risk dragging torch along.
+pip install -q accelerate gradio librosa pydub tensorboardx webdataset || \
+    echo "WARNING: one or more of omnivoice's confirmed dependencies failed to install -- check pip output above."
+TORCH_VER=$(python3 -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null || echo "")
+if [ -n "$TORCH_VER" ]; then
+    # torchaudio >=2.11 targets PyTorch's stable ABI and works with ANY
+    # torch>=2.11, not just an exact version match -- exact pins only
+    # exist/matter for torch<2.11 (see github.com/pytorch/audio/issues/3902,
+    # torchaudio's "maintenance phase" announcement). Try exact match
+    # first (right for older pinned torch), fall back to latest
+    # unpinned otherwise (right for anything newer, via stable ABI) --
+    # self-healing rather than hardcoding a version threshold that will
+    # itself go stale.
+    pip install -q "torchaudio==$TORCH_VER" 2>/dev/null || pip install -q torchaudio || \
+        echo "WARNING: torchaudio install failed entirely (tried exact match to torch==$TORCH_VER, then latest) -- install manually and check for errors."
+else
+    echo "WARNING: could not detect installed torch version -- install torchaudio manually: pip install torchaudio"
+fi
 pip install -q openai-whisper        # used by OmniVoice's built-in ref_audio auto-transcription
 pip install -q openai                # for stage1_safety_gate.py's moderation API call
 pip install -q groq                  # for stage7_overlays.py's callout-detection LLM call (optional feature)

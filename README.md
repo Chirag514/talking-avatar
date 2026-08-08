@@ -84,6 +84,102 @@ checked against OpenAI's moderation API before generation.
 ./test_stages.sh export test_output/restored.mp4 test_output/cloned_voice.wav final.mp4
 ```
 
+## Testing on Google Colab
+
+CONFIRMED working end-to-end (voice + Ditto animation) on a Colab T4,
+as of 2026-08-08. Colab isn't conda-native and isn't persistent across
+sessions, so this differs from the RunPod flow above in a few
+specific, necessary ways:
+
+```bash
+# 1. Get conda onto the instance
+pip install -q condacolab
+python -c "import condacolab; condacolab.install()"
+# runtime restarts automatically here -- re-run cells below after it does
+
+# 2. Mount Drive so downloaded weights survive session resets
+python -c "
+from google.colab import drive
+drive.mount('/content/drive')
+import os
+os.makedirs('/content/drive/MyDrive/talking_avatar_models', exist_ok=True)
+"
+
+# 3. Clone the repo, main-env deps (same as setup_pipeline.sh section 1)
+git clone https://github.com/<you>/talking-avatar.git
+cd talking-avatar
+pip install -q --upgrade "transformers>=5.3.0" soundfile
+pip install -q omnivoice --no-deps
+pip install -q torchaudio  # unpinned -- matches Colab's newer torch via stable ABI, see stage2_voice_gen.py
+pip install -q accelerate gradio librosa pydub tensorboardx webdataset  # omnivoice's other --no-deps misses
+pip install -q openai-whisper openai groq moviepy pillow opencv-python playwright
+playwright install --with-deps chromium
+apt-get install -qq -y fonts-noto-core imagemagick
+
+# 4. Real-ESRGAN, on Drive so it isn't re-downloaded every session
+[ ! -d "/content/drive/MyDrive/talking_avatar_models/Real-ESRGAN" ] && \
+  git clone https://github.com/xinntao/Real-ESRGAN.git /content/drive/MyDrive/talking_avatar_models/Real-ESRGAN
+cd /content/drive/MyDrive/talking_avatar_models/Real-ESRGAN
+pip install -q -r requirements.txt && python setup.py develop
+cd /content/talking-avatar
+
+# 5. Ditto's env -- use environment_colab.yaml, NOT environment.yaml.
+#    The full environment.yaml (with tensorrt pins) fails to resolve
+#    on Colab entirely; environment_colab.yaml is a minimal subset
+#    that CONFIRMED succeeds.
+conda env create -f pipeline/ditto_talkinghead/environment_colab.yaml
+
+# 6. CONFIRMED NECESSARY: conda's pytorch reports CUDA unavailable on
+#    Colab (driver/build mismatch) -- force-reinstall via pip against
+#    Colab's actual CUDA build:
+conda run -n ditto pip uninstall -y torch torchvision torchaudio
+conda run -n ditto pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu121
+# verify: should print CUDA available: True
+conda run -n ditto python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+
+# 7. Remaining pip-only packages environment.yaml would normally cover
+#    (see setup_pipeline.sh's comment block for the full pinned list)
+conda run -n ditto pip install -q audioread==3.0.1 cffi==1.17.1 cuda-python==12.6.2.post1 \
+    cython==3.0.11 decorator==5.1.1 filetype==1.2.0 imageio==2.36.1 \
+    imageio-ffmpeg==0.5.1 joblib==1.4.2 lazy-loader==0.4 \
+    librosa==0.10.2.post1 llvmlite==0.43.0 msgpack==1.1.0 numba==0.60.0 \
+    nvidia-cublas-cu12==12.6.4.1 nvidia-cuda-runtime-cu12==12.6.77 \
+    nvidia-cudnn-cu12==9.6.0.74 opencv-python-headless==4.10.0.84 \
+    packaging==24.2 platformdirs==4.3.6 pooch==1.8.2 pycparser==2.22 \
+    scikit-image==0.25.0 scikit-learn==1.6.0 scipy==1.15.0 \
+    soundfile==0.13.0 soxr==0.5.0.post1 threadpoolctl==3.5.0 \
+    tifffile==2024.12.12 tqdm==4.67.1 polygraphy colored
+conda run -n ditto pip install -q einops
+
+# 8. CONFIRMED NECESSARY: plain `onnxruntime` is CPU-only. Swap for GPU:
+conda run -n ditto pip uninstall -y onnxruntime
+conda run -n ditto pip install onnxruntime-gpu
+conda run -n ditto pip install -q mediapipe
+
+# 9. Ditto checkpoints
+git lfs install
+[ ! -d "pipeline/ditto_talkinghead/checkpoints" ] && \
+  git clone https://huggingface.co/digital-avatar/ditto-talkinghead pipeline/ditto_talkinghead/checkpoints
+
+# 10. Test
+conda run -n ditto python -c "import filetype, pyximport, onnxruntime, mediapipe, einops; print('all present')"
+conda run -n ditto bash test_stages.sh ditto reference_image.png test_output/cloned_voice.wav
+```
+
+A `pyximport` import error means `cython` didn't actually install in
+step 7 (it's bundled inside the `cython` package, not separate).
+
+If `conda run -n ditto ...` ever fails with
+`DirectoryNotACondaEnvironmentError`, the env creation in step 5 failed
+early and left a broken stub directory -- `rm -rf /usr/local/envs/ditto`
+and retry step 5, watching the full output (`2>&1 | tail -100`) rather
+than assuming it succeeded.
+
+Use `--skip_safety_gate` on `run_pipeline.py` to test without an
+`OPENAI_API_KEY` (see "Running the full pipeline" above) -- useful for
+Colab dev/testing, not for anything you'd actually publish.
+
 ## Ditto tuning — what's baked in and why
 
 `stage4c_ditto.py`'s defaults are not Ditto's out-of-the-box behavior.

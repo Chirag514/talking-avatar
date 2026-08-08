@@ -1,0 +1,56 @@
+name: ditto
+
+# Colab-specific variant of environment.yaml. CONFIRMED working via
+# actual test run on Colab's T4 (2026-08-08) -- environment.yaml's
+# full dependency list (which includes tensorrt/tensorrt-libs/
+# tensorrt-bindings==8.6.1) fails to resolve there entirely, unlike on
+# RunPod where it fails partway (see setup_pipeline.sh's comments).
+# This is a minimal subset: base conda/pytorch packages only. It is
+# NOT sufficient on its own -- three more steps are required after
+# `conda env create -f` with this file, all CONFIRMED necessary:
+#
+#   1. conda-installed pytorch reports torch.cuda.is_available()==False
+#      on Colab (a driver/build mismatch, not a code problem). Fix by
+#      force-reinstalling torch via pip against Colab's actual CUDA:
+#        conda run -n ditto pip uninstall -y torch torchvision torchaudio
+#        conda run -n ditto pip install torch==2.5.1 torchvision==0.20.1 \
+#            torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+#
+#   2. Install the remaining pip-only packages environment.yaml would
+#      normally provide (see setup_pipeline.sh's comment block for the
+#      full pinned list: audioread, cffi, cuda-python, cython, decorator,
+#      filetype, imageio, imageio-ffmpeg, joblib, lazy-loader, librosa,
+#      llvmlite, msgpack, numba, nvidia-cu12 packages, opencv-python-headless,
+#      packaging, platformdirs, pooch, pycparser, scikit-image,
+#      scikit-learn, scipy, soundfile, soxr, threadpoolctl, tifffile,
+#      tqdm, polygraphy, colored), plus onnxruntime, mediapipe, einops.
+#      (pyximport comes for free once cython is installed -- it's part
+#      of the cython package itself, not a separate one.)
+#
+#   3. The plain `onnxruntime` pip package is CPU-only. Ditto needs GPU
+#      execution -- swap it:
+#        conda run -n ditto pip uninstall -y onnxruntime
+#        conda run -n ditto pip install onnxruntime-gpu
+#
+# See README.md's "Testing on Google Colab" section for the full
+# confirmed step-by-step sequence in order.
+
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.5.1
+  - torchvision=0.20.1
+  - torchaudio=2.5.1
+  - pytorch-cuda=12.1
+  - ffmpeg
+  - numpy=2.0.1
+  - pillow=11.0
+  - pyyaml
+  - requests
+  - scipy
+  - pip

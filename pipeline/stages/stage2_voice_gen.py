@@ -44,9 +44,12 @@ DEPENDENCY NOTE (IMPORTANT — different from the old Chatterbox setup):
   The omnivoice PyPI package also declares torch==2.8.* as a
   dependency, which WILL downgrade a pinned torch install (e.g.
   2.6.0+cu124, if that's what your LatentSync setup needs) if installed
-  normally. setup_runpod.sh installs it with --no-deps and adds the
+  normally. setup_pipeline.sh installs it with --no-deps and adds the
   remaining requirements manually to protect whatever torch version
-  your pod image is pinned to.
+  your pod image is pinned to. CONFIRMED complete list (omnivoice
+  0.2.1, via pip's own dependency-conflict warning when force-checked
+  against these — authoritative, not guesswork): torchaudio,
+  accelerate, gradio, librosa, pydub, tensorboardx, webdataset.
 
 HF CACHE NOTE (RunPod-specific): by default, HuggingFace downloads
   OmniVoice's weights to ~/.cache/huggingface, which typically lives on
@@ -116,8 +119,11 @@ _SAMPLE_RATE = 24000  # OmniVoice native output rate, confirmed
 
 # Params generate_voice() actually passes to model.generate() -- keep this
 # in sync with gen_kwargs below. Used only to VALIDATE, never to change
-# what gets passed.
-_EXPECTED_GENERATE_PARAMS = {"text", "ref_audio", "ref_text", "speed", "duration", "language_id"}
+# what gets passed. CONFIRMED against omnivoice 0.2.1's real signature
+# (text, ref_audio, ref_text, speed, duration, generation_config,
+# instruct, language, normalize_text, voice_clone_prompt, **kwargs) --
+# language_id was the old wrong name, fixed to language below.
+_EXPECTED_GENERATE_PARAMS = {"text", "ref_audio", "ref_text", "speed", "duration", "language"}
 
 
 def _validate_generate_signature(model):
@@ -194,15 +200,15 @@ def generate_voice(script_text: str, reference_voice_clip_path: str,
     Generates cloned speech audio from script_text in the voice of the
     speaker in reference_voice_clip_path.
 
-    language: OPTIONAL. Only pass this if you've confirmed language_id
-    works on your installed omnivoice version — passing it to
-    model.generate() was found to trigger
-    "TypeError: Object of type Qwen3Config is not JSON serializable"
-    deep inside generate() on at least one tested setup. The official
-    README's own Python API examples never pass language_id either
-    (it only appears in the separate JSONL batch-inference format) —
-    OmniVoice auto-detects language from script_text directly, so
-    leaving this as None is the safe default.
+    language: OPTIONAL. CONFIRMED (from your own test run's validation
+    warning, omnivoice 0.2.1): the real parameter name is `language`,
+    not `language_id` -- this file previously passed `language_id`,
+    which model.generate()'s **kwargs catch-all silently absorbed and
+    did nothing with (no error, language was just never set). Fixed
+    below. Still worth leaving unset in normal use: the official
+    README's own Python API examples never pass it either (it only
+    appears in the separate JSONL batch-inference format), and
+    OmniVoice auto-detects language from script_text directly.
 
     reference_transcript: exact transcript of what's said in
     reference_voice_clip_path. Optional — if omitted, OmniVoice's
@@ -225,7 +231,7 @@ def generate_voice(script_text: str, reference_voice_clip_path: str,
         ref_audio=reference_voice_clip_path,
     )
     if language:
-        gen_kwargs["language_id"] = language
+        gen_kwargs["language"] = language  # CONFIRMED real param name (was language_id, silently no-op'd)
     if reference_transcript:
         gen_kwargs["ref_text"] = reference_transcript
     if duration is not None:
